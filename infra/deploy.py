@@ -38,8 +38,10 @@ LAMBDA_ENV_DEFAULTS = {
     "DEFAULT_SIZE": "2",
     "EXPIRY_TARGET_DAYS": "30",
     "ATR_PERIOD": "14",
-    "ATR_MULTIPLIER": "1.0",
-    "H4_LOOKBACK_DAYS": "90",
+    "ATR_MULTIPLIER": "0.15",
+    "TICK_TREND": "2",
+    "TICK_REVERSAL": "4",
+    "H4_LOOKBACK_DAYS": "180",
     "TICK_BUFFER_MINUTES": "5",
 }
 

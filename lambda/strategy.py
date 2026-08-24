@@ -6,15 +6,17 @@ import scheduler as scheduler_store
 import state as state_store
 from candles import fetch_h4_candles
 from deribit_client import DeribitClient
-from renko import average_true_range, current_trend
+from renko import compute_trend
 
 CURRENCY = "ETH"
 PERP_INSTRUMENT = os.environ.get("PERP_INSTRUMENT", "ETH_USDC-PERPETUAL")
 DEFAULT_SIZE = float(os.environ.get("DEFAULT_SIZE", "2"))
 EXPIRY_TARGET_DAYS = int(os.environ.get("EXPIRY_TARGET_DAYS", "30"))
 ATR_PERIOD = int(os.environ.get("ATR_PERIOD", "14"))
-ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", "1.0"))
-H4_LOOKBACK_DAYS = int(os.environ.get("H4_LOOKBACK_DAYS", "90"))
+ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", "0.15"))
+TICK_TREND = int(os.environ.get("TICK_TREND", "2"))
+TICK_REVERSAL = int(os.environ.get("TICK_REVERSAL", "4"))
+H4_LOOKBACK_DAYS = int(os.environ.get("H4_LOOKBACK_DAYS", "180"))
 
 
 def _client(credentials):
@@ -23,12 +25,10 @@ def _client(credentials):
 
 def _compute_trend(client):
     candles = fetch_h4_candles(client, PERP_INSTRUMENT, H4_LOOKBACK_DAYS)
-    closes = [c["close"] for c in candles]
-    brick_size = average_true_range(candles, ATR_PERIOD) * ATR_MULTIPLIER
-    trend = current_trend(closes, brick_size)
+    trend, tick_size = compute_trend(candles, ATR_PERIOD, ATR_MULTIPLIER, TICK_TREND, TICK_REVERSAL)
     if trend is None:
         raise RuntimeError("Unable to determine Renko trend from available candles")
-    return trend, brick_size
+    return trend, tick_size
 
 
 def _pick_atm_options(client):
@@ -58,7 +58,7 @@ def start(credentials):
     put_order = client.market_order(put_instrument, "sell", DEFAULT_SIZE)
     call_order = client.market_order(call_instrument, "sell", DEFAULT_SIZE)
 
-    trend, brick_size = _compute_trend(client)
+    trend, tick_size = _compute_trend(client)
     hedge_side = "buy" if trend == "up" else "sell"
     perp_order = client.market_order(PERP_INSTRUMENT, hedge_side, DEFAULT_SIZE)
 
@@ -69,7 +69,7 @@ def start(credentials):
         call_instrument=call_instrument,
         hedge_side=hedge_side,
         last_trend=trend,
-        brick_size=brick_size,
+        tick_size=tick_size,
         updated_at=datetime.now(timezone.utc).isoformat(),
     )
     state_store.put_state(st)
@@ -102,7 +102,7 @@ def tick(credentials):
         return {"status": "disabled"}
 
     client = _client(credentials)
-    trend, brick_size = _compute_trend(client)
+    trend, tick_size = _compute_trend(client)
     result = {"status": "checked", "trend": trend, "previous_trend": st.get("last_trend")}
 
     if trend != st.get("last_trend"):
@@ -117,7 +117,7 @@ def tick(credentials):
         result["perp_order"] = perp_order.get("order", {}).get("order_id")
 
     st["last_trend"] = trend
-    st["brick_size"] = brick_size
+    st["tick_size"] = tick_size
     st["updated_at"] = datetime.now(timezone.utc).isoformat()
     state_store.put_state(st)
 
