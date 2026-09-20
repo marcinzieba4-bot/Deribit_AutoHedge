@@ -35,7 +35,11 @@ LAMBDA_ENV_DEFAULTS = {
     "STATE_TABLE": STATE_TABLE_NAME,
     "SCHEDULE_NAME": SCHEDULE_NAME,
     "PERP_INSTRUMENT": "ETH_USDC-PERPETUAL",
-    "DEFAULT_SIZE": "2",
+    "DEFAULT_SIZE": "1",
+    "IV_MIN": "60",
+    "DELTA_BAND": "0.3",
+    "TILT": "0.5",
+    "LIMIT_WAIT_SECONDS": "60",
     "EXPIRY_TARGET_DAYS": "30",
     "ATR_PERIOD": "14",
     "ATR_MULTIPLIER": "0.15",
@@ -236,7 +240,7 @@ def ensure_function(lambda_client, role_arn):
                 Role=role_arn,
                 Handler="handler.handler",
                 Code={"ZipFile": code},
-                Timeout=60,
+                Timeout=300,
                 MemorySize=256,
                 Environment=env,
                 Description="Deribit auto-hedge bot",
@@ -249,7 +253,7 @@ def ensure_function(lambda_client, role_arn):
             lambda_client.update_function_configuration(
                 FunctionName=FUNCTION_NAME,
                 Role=role_arn,
-                Timeout=60,
+                Timeout=300,
                 MemorySize=256,
             )
             lambda_client.get_waiter("function_updated").wait(FunctionName=FUNCTION_NAME)

@@ -31,27 +31,21 @@ class DeribitClient:
         self._token_expiry = time.time() + result["expires_in"] - 30
         return self._token
 
-    def _public(self, method, params=None):
-        resp = requests.get(f"{BASE_URL}/public/{method}", params=params or {}, timeout=self._timeout)
-        resp.raise_for_status()
-        payload = resp.json()
+    def _call(self, path, params, headers=None):
+        resp = requests.get(f"{BASE_URL}/{path}", params=params or {}, headers=headers, timeout=self._timeout)
+        payload = resp.json() if resp.content else {}
         if "error" in payload:
-            raise RuntimeError(f"Deribit error on public/{method}: {payload['error']}")
+            raise RuntimeError(f"Deribit error on {path}: {payload['error']}")
+        resp.raise_for_status()
         return payload["result"]
 
+    def _public(self, method, params=None):
+        return self._call(f"public/{method}", params)
+
     def _private(self, method, params=None):
-        token = self._authenticate()
-        resp = requests.get(
-            f"{BASE_URL}/private/{method}",
-            params=params or {},
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=self._timeout,
-        )
-        resp.raise_for_status()
-        payload = resp.json()
-        if "error" in payload:
-            raise RuntimeError(f"Deribit error on private/{method}: {payload['error']}")
-        return payload["result"]
+        return self._call(f"private/{method}", params, {"Authorization": f"Bearer {self._authenticate()}"})
+
+    # --- market data ---
 
     def get_instruments(self, currency, kind, expired=False):
         return self._public(
@@ -59,8 +53,22 @@ class DeribitClient:
             {"currency": currency, "kind": kind, "expired": str(expired).lower()},
         )
 
+    def get_instrument(self, instrument_name):
+        return self._public("get_instrument", {"instrument_name": instrument_name})
+
     def get_index_price(self, index_name):
         return self._public("get_index_price", {"index_name": index_name})["index_price"]
+
+    def get_ticker(self, instrument_name):
+        return self._public("ticker", {"instrument_name": instrument_name})
+
+    def get_dvol(self, currency="ETH"):
+        now = int(time.time() * 1000)
+        data = self._public(
+            "get_volatility_index_data",
+            {"currency": currency, "start_timestamp": now - 3 * 3600 * 1000, "end_timestamp": now, "resolution": 3600},
+        )["data"]
+        return data[-1][4]
 
     def get_tradingview_chart_data(self, instrument_name, resolution, start_ms, end_ms):
         return self._public(
@@ -73,19 +81,32 @@ class DeribitClient:
             },
         )
 
+    # --- account ---
+
     def get_positions(self, currency, kind=None):
         params = {"currency": currency}
         if kind:
             params["kind"] = kind
         return self._private("get_positions", params)
 
-    def market_order(self, instrument_name, side, amount, reduce_only=False):
-        method = "buy" if side == "buy" else "sell"
+    # --- orders ---
+
+    def limit_order(self, instrument_name, side, amount, price, post_only=True):
         params = {
             "instrument_name": instrument_name,
             "amount": amount,
-            "type": "market",
+            "type": "limit",
+            "price": price,
+            "post_only": str(post_only).lower(),
         }
-        if reduce_only:
-            params["reduce_only"] = "true"
-        return self._private(method, params)
+        return self._private("buy" if side == "buy" else "sell", params)
+
+    def market_order(self, instrument_name, side, amount):
+        params = {"instrument_name": instrument_name, "amount": amount, "type": "market"}
+        return self._private("buy" if side == "buy" else "sell", params)
+
+    def get_order_state(self, order_id):
+        return self._private("get_order_state", {"order_id": order_id})
+
+    def cancel_order(self, order_id):
+        return self._private("cancel", {"order_id": order_id})
