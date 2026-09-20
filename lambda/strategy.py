@@ -18,6 +18,7 @@ EXPIRY_TARGET_DAYS = int(os.environ.get("EXPIRY_TARGET_DAYS", "30"))
 IV_MIN = float(os.environ.get("IV_MIN", "60"))
 DELTA_BAND = float(os.environ.get("DELTA_BAND", "0.3"))
 TILT = float(os.environ.get("TILT", "0.5"))
+MOMENTUM_SIZE = float(os.environ.get("MOMENTUM_SIZE", "0"))
 LIMIT_WAIT_SECONDS = int(os.environ.get("LIMIT_WAIT_SECONDS", "60"))
 ATR_PERIOD = int(os.environ.get("ATR_PERIOD", "14"))
 ATR_MULTIPLIER = float(os.environ.get("ATR_MULTIPLIER", "0.15"))
@@ -161,7 +162,16 @@ def _rebalance_hedge(client, st, result):
         st.update(last_trend=trend, tick_size=tick_size, last_portfolio_delta=pdelta)
         result.update(portfolio_delta=round(pdelta, 4), trend=trend)
     else:
-        target = 0.0
+        # Low-vol regime book: Renko momentum on the perp while no straddle is open.
+        # Off by default (MOMENTUM_SIZE=0); backtested at 1 ETH, DVOL<60.
+        low_vol = st.get("last_dvol") is not None and st["last_dvol"] < IV_MIN
+        if MOMENTUM_SIZE > 0 and low_vol:
+            trend, tick_size = renko_trend(client)
+            st.update(last_trend=trend, tick_size=tick_size)
+            target = MOMENTUM_SIZE * (1 if trend == "up" else -1 if trend == "down" else 0)
+            result.update(momentum=f"{trend} (DVOL {st['last_dvol']} < {IV_MIN})", trend=trend)
+        else:
+            target = 0.0
     current = perp_position(client)
     diff = round(target - current, PERP_AMOUNT_DECIMALS)
     result.update(hedge_target=round(target, 4), hedge_current=current)

@@ -39,6 +39,7 @@ LAMBDA_ENV_DEFAULTS = {
     "IV_MIN": "60",
     "DELTA_BAND": "0.3",
     "TILT": "0.5",
+    "MOMENTUM_SIZE": "0",
     "LIMIT_WAIT_SECONDS": "60",
     "EXPIRY_TARGET_DAYS": "30",
     "ATR_PERIOD": "14",
