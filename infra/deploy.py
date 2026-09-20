@@ -39,7 +39,7 @@ LAMBDA_ENV_DEFAULTS = {
     "IV_MIN": "60",
     "DELTA_BAND": "0.3",
     "TILT": "0.5",
-    "MOMENTUM_SIZE": "0",
+    "MOMENTUM_SIZE": "0.5",
     "LIMIT_WAIT_SECONDS": "60",
     "EXPIRY_TARGET_DAYS": "30",
     "ATR_PERIOD": "14",
@@ -285,6 +285,13 @@ def finalize_function_env(lambda_client, function_arn, scheduler_role_arn):
 def ensure_recursion_allowed(lambda_client):
     lambda_client.put_function_recursion_config(FunctionName=FUNCTION_NAME, RecursiveLoop="Allow")
     print("Set recursive-loop detection to Allow (required for the self-rescheduling tick loop)")
+
+
+def ensure_single_concurrency(lambda_client):
+    # A tick can rest a limit order for LIMIT_WAIT_SECONDS; two overlapping ticks would
+    # each read a stale position and both trade. One execution at a time, always.
+    lambda_client.put_function_concurrency(FunctionName=FUNCTION_NAME, ReservedConcurrentExecutions=1)
+    print("Set reserved concurrency to 1 (no overlapping ticks)")
 
 
 def main():
