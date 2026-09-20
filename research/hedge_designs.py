@@ -17,6 +17,8 @@ dv_v = [d[1] for d in dvol]
 
 PERP_FEE = 0.0005
 OPT_FEE = 0.0003
+STRIKE_STEP = 25
+MARK_FRAC = 1.0  # fraction of BS mark collected on short legs (0.9 = bid-side haircut)
 
 
 def dvol_at(ts):
@@ -97,10 +99,10 @@ def simulate(name, bucket_ms, hedge, band=0.0, tilt=0.0, strangle=0.0, iv_min=0.
         # open new straddle/strangle if flat and IV filter passes
         if opt_open is None and options != "none":
             if iv_min <= dvol_at(ts) < iv_max:
-                Kc = round(S * (1 + strangle) / 25) * 25; Kp = round(S * (1 - strangle) / 25) * 25
+                Kc = round(S * (1 + strangle) / STRIKE_STEP) * STRIKE_STEP; Kp = round(S * (1 - strangle) / STRIKE_STEP) * STRIKE_STEP
                 T = tenor_days / 365
                 pc, _ = bs(S, Kc, T, sig, True); pp, _ = bs(S, Kp, T, sig, False)
-                opt_open = {"Kc": Kc, "Kp": Kp, "exp": ts + tenor_days * 86400000, "prem": pc + pp, "t0": ts}
+                opt_open = {"Kc": Kc, "Kp": Kp, "exp": ts + tenor_days * 86400000, "prem": (pc + pp) * (MARK_FRAC if sgn == 1 else 2 - MARK_FRAC), "t0": ts}
                 premium_total += (pc + pp) * size
                 fees += 2 * S * size * OPT_FEE
             else:

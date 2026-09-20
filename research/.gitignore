@@ -5,3 +5,7 @@ dvol_1h.json
 chart_data.json
 h4_vs_d1.json
 hedge_designs.json
+btc_candles_1h.json
+btc_funding_1h.json
+btc_dvol_1h.json
+btc_fetch.log
