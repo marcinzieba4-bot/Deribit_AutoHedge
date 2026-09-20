@@ -67,10 +67,10 @@ def renko_dirs(candles, period=14, mult=0.15, tt=2, tr=4):
 
 
 def simulate(name, bucket_ms, hedge, band=0.0, tilt=0.0, strangle=0.0, iv_min=0.0, size=2.0,
-             tenor_days=30, warmup_bars=20, options="short", iv_max=1e9):
+             tenor_days=30, warmup_bars=20, options="short", iv_max=1e9, mom_size=0.0):
     sgn = 1 if options == "short" else -1
     keys, bars = build_bars(bucket_ms)
-    dirs = renko_dirs(bars) if hedge in ("renko", "tilt", "renko_always") else [0] * len(bars)
+    dirs = renko_dirs(bars) if hedge in ("renko", "tilt", "renko_always", "tilt_mom", "tilt_mom_add") else [0] * len(bars)
     hours = bucket_ms // 3600000
 
     pos = 0.0; hedge_pnl = 0.0; fees = 0.0; fund = 0.0; trades = 0
@@ -126,6 +126,10 @@ def simulate(name, bucket_ms, hedge, band=0.0, tilt=0.0, strangle=0.0, iv_min=0.
             target = -port_delta
         elif hedge == "tilt":
             target = -port_delta + tilt * dirs[t] if opt_open else 0.0
+        elif hedge == "tilt_mom_add":  # deployed logic: momentum whenever DVOL < iv_min, added to the straddle hedge
+            target = ((-port_delta + tilt * dirs[t]) if opt_open else 0.0) + (mom_size * dirs[t] if dvol_at(ts) < iv_min else 0.0)
+        elif hedge == "tilt_mom":  # exact live logic: momentum only while no straddle is open
+            target = (-port_delta + tilt * dirs[t]) if opt_open else (mom_size * dirs[t] if dvol_at(ts) < iv_min else 0.0)
         if abs(target - pos) > band or (target == 0 and pos != 0 and hedge not in ("renko",)):
             fees += abs(target - pos) * S * PERP_FEE; trades += 1; pos = target
 

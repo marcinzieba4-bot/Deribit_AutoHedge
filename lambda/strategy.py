@@ -138,11 +138,11 @@ def _reconcile_options(client, st, result):
 
 
 def _maybe_open_options(client, st, result):
-    if st.get("options_open"):
-        return
     dvol = client.get_dvol(CURRENCY)
     result["dvol"] = dvol
     st["last_dvol"] = dvol
+    if st.get("options_open"):
+        return
     if dvol < IV_MIN:
         result["options"] = f"skipped: DVOL {dvol} < {IV_MIN}"
         return
@@ -154,24 +154,25 @@ def _maybe_open_options(client, st, result):
 
 
 def _rebalance_hedge(client, st, result):
+    # Low-vol momentum book (off by default, MOMENTUM_SIZE=0): +/-MOMENTUM_SIZE in the
+    # Renko direction whenever DVOL < IV_MIN, added on top of the straddle hedge if one is open.
+    low_vol = st.get("last_dvol") is not None and st["last_dvol"] < IV_MIN
+    momentum_on = MOMENTUM_SIZE > 0 and low_vol
+    trend = None
+    if st.get("options_open") or momentum_on:
+        trend, tick_size = renko_trend(client)
+        st.update(last_trend=trend, tick_size=tick_size)
+        result["trend"] = trend
+    direction = 1 if trend == "up" else -1 if trend == "down" else 0
+    target = 0.0
     if st.get("options_open"):
         pdelta = portfolio_delta(client, st["put_instrument"], st["call_instrument"])
-        trend, tick_size = renko_trend(client)
-        tilt = TILT * (1 if trend == "up" else -1 if trend == "down" else 0)
-        target = -pdelta + tilt
-        st.update(last_trend=trend, tick_size=tick_size, last_portfolio_delta=pdelta)
-        result.update(portfolio_delta=round(pdelta, 4), trend=trend)
-    else:
-        # Low-vol regime book: Renko momentum on the perp while no straddle is open.
-        # Off by default (MOMENTUM_SIZE=0); backtested at 1 ETH, DVOL<60.
-        low_vol = st.get("last_dvol") is not None and st["last_dvol"] < IV_MIN
-        if MOMENTUM_SIZE > 0 and low_vol:
-            trend, tick_size = renko_trend(client)
-            st.update(last_trend=trend, tick_size=tick_size)
-            target = MOMENTUM_SIZE * (1 if trend == "up" else -1 if trend == "down" else 0)
-            result.update(momentum=f"{trend} (DVOL {st['last_dvol']} < {IV_MIN})", trend=trend)
-        else:
-            target = 0.0
+        target += -pdelta + TILT * direction
+        st["last_portfolio_delta"] = pdelta
+        result["portfolio_delta"] = round(pdelta, 4)
+    if momentum_on:
+        target += MOMENTUM_SIZE * direction
+        result["momentum"] = f"{trend} (DVOL {st['last_dvol']} < {IV_MIN})"
     current = perp_position(client)
     diff = round(target - current, PERP_AMOUNT_DECIMALS)
     result.update(hedge_target=round(target, 4), hedge_current=current)
