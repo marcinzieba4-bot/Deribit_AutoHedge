@@ -83,11 +83,17 @@ def execute(client, instrument_name, side, amount):
 # --- exchange state ---
 
 def perp_position(client):
+    """Signed ETH position. Deribit's size_currency is already signed (negative for a
+    short, direction "sell"); negating it again read every short as a long."""
     for p in client.get_positions("USDC", kind="future"):
         if p["instrument_name"] == PERP_INSTRUMENT:
-            size = float(p.get("size_currency") or 0.0)
-            return size if p["direction"] == "buy" else -size
+            return float(p.get("size_currency") or 0.0)
     return 0.0
+
+
+# The largest perp position the book can legitimately hold: full straddle delta,
+# the lean and the trend sleeve, all on the same side, plus a rounding margin.
+MAX_ABS_POSITION = SIZE + TILT + MOMENTUM_SIZE + 0.1
 
 
 def option_position(client, instrument_name):
@@ -176,11 +182,23 @@ def _rebalance_hedge(client, st, result):
     current = perp_position(client)
     diff = round(target - current, PERP_AMOUNT_DECIMALS)
     result.update(hedge_target=round(target, 4), hedge_current=current)
-    if abs(diff) < DELTA_BAND and not (target == 0.0 and current != 0.0):
+    if abs(current) > MAX_ABS_POSITION or abs(target) > MAX_ABS_POSITION or abs(diff) > MAX_ABS_POSITION:
+        # Something is not what the book expects (manual trade, bad read, bad math).
+        # Never "correct" it blindly: stop trading and leave it to a human.
+        st["enabled"] = False
+        st["last_error"] = f"{_now_iso()} halted: position {current}, target {target}, exceeds {MAX_ABS_POSITION}"
+        result["hedge"] = "halted: position outside the book's range, loop disabled"
+        log.error(result["hedge"] + f" (current {current}, target {target})")
+    elif abs(diff) < DELTA_BAND and not (target == 0.0 and current != 0.0):
         result["hedge"] = "within band"
     elif diff != 0:
         result["hedge_fill"] = execute(client, PERP_INSTRUMENT, "buy" if diff > 0 else "sell", abs(diff))
         current = perp_position(client)
+        if abs(target - current) > DELTA_BAND:
+            st["enabled"] = False
+            st["last_error"] = f"{_now_iso()} halted: after trading, position {current} is not at target {target}"
+            result["hedge"] = "halted: fill did not land where expected, loop disabled"
+            log.error(result["hedge"])
     st["last_perp_position"] = current
     st["last_hedge_target"] = target
 
